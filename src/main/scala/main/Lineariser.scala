@@ -812,7 +812,9 @@ class Lineariser(benchmarkName : String,
 
   def defObjToString(term : ITerm) : String =
     term match {
-      case t : IFunApp => "(" + t.fun.name + " " + t.args.mkString(" ") + ")"
+      case t: IFunApp if t.args.nonEmpty =>
+        "(" + t.fun.name + " " + t.args.mkString(" ") + ")"
+      case t: IFunApp => t.fun.name
       case _ => term.toString
     }
 
