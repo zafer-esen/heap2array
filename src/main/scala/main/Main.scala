@@ -2,7 +2,7 @@ package main
 
 import ap.parameters.{Param, ParserSettings}
 import ap.CmdlMain.NullStream
-import ap.parser.IFormula
+import ap.parser.{IFormula, SMTParser2InputAbsy}
 
 object Heap2Array {
   val version = "unstable build"
@@ -52,7 +52,6 @@ object Heap2Array {
 
       val (_, _, signature) = parser(input)
       val assertions : Seq[IFormula] = parser.extractAssertions(input)
-      val funDefs = parser.functionDefs
 
       if (Param.PRINT_SMT_FILE(settings) != "") {
         println
@@ -61,10 +60,10 @@ object Heap2Array {
           outNamePrefix + Param.PRINT_SMT_FILE(settings) + " ...")
         val out = new java.io.FileOutputStream(outNamePrefix +
           Param.PRINT_SMT_FILE(settings))
-        Console.withOut(out) { Lineariser(assertions, funDefs, signature, "") }
+        Console.withOut(out) { Lineariser(assertions, signature, "") }
         out.close
       } else {
-        Lineariser(assertions, funDefs, signature, "")
+        Lineariser(assertions, signature, "")
       }
     } catch {
       case e : Throwable => {

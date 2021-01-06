@@ -503,13 +503,11 @@ object Lineariser {
   //////////////////////////////////////////////////////////////////////////////
 
   def apply(formulas : Seq[IFormula],
-            funDefs : Map[IFunction, (IExpression, SMTType)],
             signature : Signature,
             benchmarkName : String) : Unit =
-    apply(formulas, funDefs, signature, "AUFLIA", "unknown", benchmarkName)
+    apply(formulas, signature, "AUFLIA", "unknown", benchmarkName)
 
   def apply(formulas : Seq[IFormula],
-            funDefs : Map[IFunction, (IExpression, SMTType)],
             signature : Signature,
             logic : String, status : String,
             benchmarkName : String) : Unit = {
@@ -557,10 +555,6 @@ object Lineariser {
       predTypeFromSort)
 
     val (substFuns, substPreds) = lineariser.open
-
-    /*for ((f, fdef) <- funDefs) {
-      printDefineFun(f, )
-    }*/
 
     val substFormulas = for (f <- finalFormulas) yield {
       FunPredSubstVisitor(f, substFuns, substPreds)
@@ -694,6 +688,7 @@ class Lineariser(benchmarkName : String,
       theory match {
         case _ : ADT  => // nothing
         case _ : Heap => // nothing
+        case t : SimpleArray => // nothing
         case t : UninterpretedSortTheory =>
           println("(declare-sort " + t.sort + " 0" +  ")" )
         case _ => Console.err.println("Warning: do not know how to " +
