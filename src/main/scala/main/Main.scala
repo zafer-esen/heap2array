@@ -26,14 +26,6 @@ object Heap2Array {
       return
     }
 
-    if (Param.FULL_HELP(settings)) {
-      println(version)
-      println
-      printUsage
-      println
-      return
-    }
-
     if (Param.QUIET(settings))
       Console setErr NullStream
 
@@ -81,8 +73,6 @@ object Heap2Array {
 
   def printOptions = {
     println("Standard options:")
-    println(" [+-]logo                  Print logo and elapsed time              (default: +)")
-    println(" [+-]fullHelp              Print detailed help and exit             (default: -)")
     println(" [+-]version               Print version and exit                   (default: -)")
     println(" [+-]quiet                 Suppress all output to stderr            (default: -)")
     println(" [+-]assert                Enable runtime assertions                (default: -)")

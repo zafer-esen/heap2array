@@ -18,10 +18,6 @@ object GlobalSettings {
       settings = arg match {
         case Opt("version", value) =>
           Param.VERSION.set(settings, value)
-        case Opt("logo", value) =>
-          Param.LOGO.set(settings, value)
-        case Opt("fullHelp", value) =>
-          Param.FULL_HELP.set(settings, value)
         case Opt("quiet", value) =>
           Param.QUIET.set(settings, value)
         case ValueOpt("out", value) =>
@@ -36,8 +32,7 @@ object GlobalSettings {
   }
 
   val allParams =
-    List(Param.VERSION, Param.LOGO, Param.FULL_HELP,
-      Param.QUIET, /*Param.STDIN,*/ Param.ASSERTIONS, Param.PRINT_SMT_FILE)
+    List(Param.VERSION, Param.QUIET, Param.ASSERTIONS, Param.PRINT_SMT_FILE)
 
   val DEFAULT =
     new GlobalSettings (scala.collection.immutable.HashMap[Param, Any]())
