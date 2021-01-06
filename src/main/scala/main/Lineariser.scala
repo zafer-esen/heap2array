@@ -503,11 +503,14 @@ object Lineariser {
   //////////////////////////////////////////////////////////////////////////////
 
   def apply(formulas : Seq[IFormula],
+            functionTypeMap : Map[IFunction, SMTFunctionType],
             signature : Signature,
             benchmarkName : String) : Unit =
-    apply(formulas, signature, "AUFLIA", "unknown", benchmarkName)
+    apply(formulas, functionTypeMap, signature,
+          "AUFLIA", "unknown", benchmarkName)
 
   def apply(formulas : Seq[IFormula],
+            functionTypeMap : Map[IFunction, SMTFunctionType],
             signature : Signature,
             logic : String, status : String,
             benchmarkName : String) : Unit = {
@@ -716,11 +719,11 @@ class Lineariser(benchmarkName : String,
 
       // todo: read from file?
       println("(declare-datatypes ((AllocRes" + heapName + " 0) (" + heapName + " 0))\n" +
-        "                   (((AllocRes" + heapName + "   (_1 " + heapName + ") (_2 " + addrName + ")))\n" +
+        "                   (((AllocRes" + heapName + "   (new" + heapName + " " + heapName + ") (new" + addrName + " " + addrName + ")))\n" +
         "                    ((" + heapName + "Ctor (" + heapName + "Size Int)\n" +
         "                               (" + heapName + "Contents (Array " + addrName + " " + objName + "))))))\n" +
         "(define-fun null" + addrName + "  () " + addrName + " 0)\n" +
-        "(define-fun def" + objName + "    () " + objName + " " + heap._defObj + ")\n" +
+        "(define-fun def" + objName + "    () " + objName + " " + defObjToString(heap._defObj) + ")\n" +
         "(define-fun valid" + heapName + "     ((h " + heapName + ") (p " + addrName + ")) Bool\n" +
         "  (and (>= (" + heapName + "Size h) p) (> p 0)))\n" +
         "(declare-const allDef" + objName + " (Array " + addrName + " " + objName + "))\n" +
@@ -742,9 +745,6 @@ class Lineariser(benchmarkName : String,
         "          (and (= (valid" + heapName + " h1 p) (valid" + heapName + " h2 p))\n" +
         "               (= (read" + heapName + " h1 p) (read" + heapName + " h2 p)))))")
     }
-
-    // print function definitions
-
 
     // declare the required predicates
     for (pred <- predsToDeclare) {
@@ -772,12 +772,14 @@ class Lineariser(benchmarkName : String,
     val heapPredMap = new MHashMap[Predicate, Predicate]
     for (heap <- heaps) {
       for (f <- heap.functions if /*!(f.name endsWith heap.HeapSort.name) &&*/
-      !(f.name endsWith heap.AddressSort.name)){
+        !(f.name endsWith heap.AddressSort.name) &&
+        !(f.name endsWith heap.HeapSort.name)){
         heapFunMap.put(f, MonoSortedIFunction(f.name + heap.HeapSort.name,
           f.argSorts, f.resSort, f.partial, f.relational))
       }
       for (p <- heap.predefPredicates if /*!(p.name endsWith heap.HeapSort.name) &&*/
-      !(p.name endsWith heap.AddressSort.name)){
+        !(p.name endsWith heap.AddressSort.name) &&
+        !(p.name endsWith heap.HeapSort.name)){
         heapPredMap.put(p, MonoSortedPredicate(p.name + heap.HeapSort.name,
           p.argSorts))
       }
@@ -807,6 +809,12 @@ class Lineariser(benchmarkName : String,
 
   def printTerm(term : ITerm) =
     AbsyPrinter(term)
+
+  def defObjToString(term : ITerm) : String =
+    term match {
+      case t : IFunApp => "(" + t.fun.name + " " + t.args.mkString(" ") + ")"
+      case _ => term.toString
+    }
 
   def close {
     println("(check-sat)")

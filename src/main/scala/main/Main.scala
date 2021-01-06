@@ -2,7 +2,11 @@ package main
 
 import ap.parameters.{Param, ParserSettings}
 import ap.CmdlMain.NullStream
+import ap.Signature
+import ap.parser.SMTParser2InputAbsy.{SMTADT, SMTBool}
 import ap.parser.{IFormula, SMTParser2InputAbsy}
+import ap.theories.TheoryRegistry
+import ap.types.MonoSortedPredicate
 
 object Heap2Array {
   val version = "unstable build"
@@ -43,6 +47,22 @@ object Heap2Array {
       val parser = SMTParser2InputAbsy(ParserSettings.DEFAULT)
 
       val (_, _, signature) = parser(input)
+      val functionTypeMap = parser.functionTypeMap
+      // todo: is there a better way to add invariants to the signature?
+      // the way that I extended the signature looks really wrong, and it checks
+      // maybe add the parser t the project and modify there?
+      val extSignature = signature.updateOrder(signature.order.extendPred(
+        (for ((f, typ) <- functionTypeMap if typ.result == SMTBool &&
+                          {
+                            typ.arguments.size != 1 ||
+                              (typ.arguments.head match {
+                              case _ : SMTADT => !f.name.startsWith("is-")
+                              case _ => true
+                            })
+                          }) yield {
+          MonoSortedPredicate(f.name, typ.arguments.map(t => t.toSort))
+        }).toSeq
+      ))
       val assertions : Seq[IFormula] = parser.extractAssertions(input)
 
       if (Param.PRINT_SMT_FILE(settings) != "") {
@@ -52,10 +72,11 @@ object Heap2Array {
           outNamePrefix + Param.PRINT_SMT_FILE(settings) + " ...")
         val out = new java.io.FileOutputStream(outNamePrefix +
           Param.PRINT_SMT_FILE(settings))
-        Console.withOut(out) { Lineariser(assertions, signature, "") }
+        Console.withOut(out) { Lineariser(assertions, functionTypeMap,
+                                          extSignature, "") }
         out.close
       } else {
-        Lineariser(assertions, signature, "")
+        Lineariser(assertions, functionTypeMap, extSignature, "")
       }
     } catch {
       case e : Throwable => {
