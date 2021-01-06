@@ -1,0 +1,13 @@
+#!/bin/sh
+
+BASEDIR=`dirname $(readlink -e $0)`
+EXTLIBSDIR=$BASEDIR/extlibs
+ASSEMBLY=$BASEDIR/target/scala-2.*/heap2array-assembly*
+
+export JAVA_OPTS="-Xss20000k -Xmx1500m"
+
+if [ -f $ASSEMBLY ]; then
+    exec java $JAVA_OPTS -jar $ASSEMBLY "$@"
+else
+    exec scala main.Heap2Array "$@"
+fi
