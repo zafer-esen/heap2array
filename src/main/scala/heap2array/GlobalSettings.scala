@@ -1,4 +1,4 @@
-package main
+package heap2array
 
 import ap.parameters.{Param, Settings}
 
@@ -22,17 +22,15 @@ object GlobalSettings {
           Param.QUIET.set(settings, value)
         case ValueOpt("out", value) =>
           Param.PRINT_SMT_FILE.set(settings, value)
-        case Opt("assert", value) =>
-          Param.ASSERTIONS.set(settings, value)
         case Opt(_, _) =>
           throw new UnknownArgumentException(arg)
-        case _ => { inputs += arg; settings }
+        case _ => inputs += arg; settings
       }
     (settings, inputs)
   }
 
   val allParams =
-    List(Param.VERSION, Param.QUIET, Param.ASSERTIONS, Param.PRINT_SMT_FILE)
+    List(Param.VERSION, Param.QUIET, Param.PRINT_SMT_FILE)
 
   val DEFAULT =
     new GlobalSettings (scala.collection.immutable.HashMap[Param, Any]())
@@ -40,7 +38,7 @@ object GlobalSettings {
 
 class GlobalSettings(_paramMap : Map[Param, Any])
   extends Settings[GlobalSettings](_paramMap) {
-  protected val allParams = GlobalSettings.allParams
+  protected val allParams: List[Param] = GlobalSettings.allParams
 
   protected def setParams(paramMap : Map[Param, Any]) =
     new GlobalSettings(paramMap)

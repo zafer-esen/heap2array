@@ -1,7 +1,7 @@
 import Dependencies._
 
 lazy val commonSettings = Seq(
-  name := "Heap2Array",
+  name := "heap2array",
   organization := "uuverifiers",
   version := "0.1.0-SNAPSHOT",
   homepage := Some(url("https://github.com/uuverifiers/heap2array")),
@@ -20,7 +20,7 @@ lazy val root = (project in file("."))
       List("-feature",
            "-language:implicitConversions,postfixOps,reflectiveCalls"),
     //
-    mainClass in Compile := Some("main.Heap2Array"),
+    mainClass in Compile := Some("heap2array.Main"),
     //
     // libraryDependencies += scalaTest % Test,
     libraryDependencies += "org.scala-lang" % "scala-library" % scalaVersion.value,
