@@ -2,10 +2,12 @@ package heap2array
 
 import ap.parameters.{Param, ParserSettings}
 import ap.CmdlMain.NullStream
+import heap2array.SingleHeapParser.MultipleHeapsException
 
 object Main {
   val version = "unstable build"
 
+  import Heap2ArrayParams._
   def main(args: Array[String]) {
     val (settings, inputs) =
       try {
@@ -19,12 +21,12 @@ object Main {
           return
       }
 
-    if (Param.VERSION(settings)) {
+    if (VERSION(settings)) {
       println(version)
       return
     }
 
-    if (Param.QUIET(settings))
+    if (QUIET(settings))
       Console setErr NullStream
 
     if (inputs.isEmpty) {
@@ -38,19 +40,36 @@ object Main {
       val input: java.io.Reader = new java.io.BufferedReader(
         new java.io.FileReader(new java.io.File(filename)))
 
-      val parser = SMTParser2InputAbsy(ParserSettings.DEFAULT)
+      //var parser = SingleHeapParser(ParserSettings.DEFAULT)
 
-      if (Param.PRINT_SMT_FILE(settings) != "") {
-        println
-        val outNamePrefix = if (inputs.size > 1) ind.toString else ""
-        println("Saving the output of " + filename + " in SMT format to " +
-          outNamePrefix + Param.PRINT_SMT_FILE(settings) + " ...")
-        val out = new java.io.FileOutputStream(outNamePrefix +
-          Param.PRINT_SMT_FILE(settings))
-        Console.withOut(out) { parser(input) }
-        out.close()
-      } else
-        parser(input)
+      def parseAndPrint (parser : Heap2ArrayParser){
+        if (OUT(settings) != "") {
+          println
+          val outNamePrefix = if (inputs.size > 1) ind.toString else ""
+          println("Saving the output of " + filename + " in SMT format to " +
+            outNamePrefix + OUT(settings) + " ...")
+          val out = new java.io.FileOutputStream(outNamePrefix +
+            OUT(settings))
+          Console.withOut(out) {
+            parser(input)
+          }
+          out.close()
+        } else
+          parser(input)
+      }
+
+      if(EXT(settings))
+        parseAndPrint(SMTParser2InputAbsy(ParserSettings.DEFAULT))
+      else {
+        try {
+          parseAndPrint(SingleHeapParser(ParserSettings.DEFAULT))
+        }
+        catch {
+          case MultipleHeapsException =>
+            parseAndPrint(SMTParser2InputAbsy(ParserSettings.DEFAULT))
+          case e: Throwable => throw e
+        }
+      }
     } catch {
       case e : Throwable =>
         println("ERROR: " + e.getMessage)
@@ -68,6 +87,8 @@ object Main {
     println("Options:")
     println(" [+-]version               Print version and exit                   (default: -)")
     println(" [+-]quiet                 Suppress all output to stderr            (default: -)")
+    println(" [+-]ext                   Encodes extensionality and supports      (default: +)")
+    println("                           multiple heap declarations, but slower             ")
     println(" -out=filename             Output the problem in SMT-LIB format     (default: \"\")")
   }
 }

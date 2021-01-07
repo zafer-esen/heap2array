@@ -6,7 +6,7 @@ import ap.theories.{ADT, ExtArray, Heap, ModuloArithmetic, Theory}
 import ap.theories.strings.{StringTheory, StringTheoryBuilder}
 import ap.theories.rationals.Rationals
 import ap.algebra.{PseudoRing, RingWithDivision, RingWithIntConversions, RingWithOrder}
-import ap.types.{MonoSortedIFunction, MonoSortedPredicate}
+import ap.types.{MonoSortedIFunction, MonoSortedPredicate, SortedConstantTerm}
 import ap.basetypes.{IdealInt, IdealRat, Tree}
 import ap.terfor.preds.Predicate
 import ap.parser._
@@ -20,10 +20,13 @@ import ap.parser.SMTParser2InputAbsy.{BoundVariable, SMTADT, SMTArray, SMTBitVec
 
 import scala.util.matching.Regex
 
+trait Heap2ArrayParser {
+  def apply(input : java.io.Reader) : (IFormula, List[IInterpolantSpec], Signature)
+}
+
 object SMTParser2InputAbsy {
 
   import ap.parser.Parser2InputAbsy._
-  import ap.parser.IExpression.{Sort => TSort}
 
   private type Env =
     Environment[SMTType, VariableType,
@@ -357,7 +360,7 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
       (Map[IFunction, (IExpression, SMTType)], // functionDefs
         Int,                                                        // nextPartitionNumber
         Map[PartName, Int]                                          // partNameIndexes
-        )](_env, settings) {
+        )](_env, settings) with Heap2ArrayParser {
 
   import IExpression.{Sort => TSort, _}
   import Parser2InputAbsy._
@@ -2664,7 +2667,6 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
 
   protected def extractHeapNameHelper(t : Term) : scala.Option[String] = {
     t match {
-      case t : ConstantTerm => Some(printer print t)
       case t : NullaryTerm =>
         Some(asString(t.symbolref_).drop(5))
       case t : FunctionTerm =>
@@ -2768,6 +2770,45 @@ class FunPredSubstVisitor(substFuns : CMap[IFunction, IFunction],
   extends CollectingVisitor[Unit, IExpression] {
   import IExpression.toFunApplier
   import IExpression.toPredApplier
+
+  private def isHeapTerm(t : ITerm) : Boolean = getHeapSort(t).isDefined
+
+  private def getHeapSort(t : ITerm) : scala.Option[Heap.HeapSort] = {
+    import ap.types.MonoSortedIFunction
+    t match {
+      case t: IConstant => getHeapSort(t.c)
+      case f: IFunApp if f.fun.isInstanceOf[MonoSortedIFunction] =>
+        f.fun.asInstanceOf[MonoSortedIFunction].resSort match {
+          case s: Heap.HeapSort => Some(s)
+          case _ => None
+          case _ => None
+        }
+    }
+  }
+  private def getHeapSort(t : ap.terfor.Term) : scala.Option[Heap.HeapSort] =
+    t match {
+      case t : SortedConstantTerm => t.sort match {
+        case s : Heap.HeapSort => Some(s)
+        case _ => None
+      }
+      case _ => None
+    }
+
+  override def preVisit(t : IExpression, arg : Unit)
+    : PreVisitResult = {
+    t match {
+      case INot(IEquation(l, r)) if isHeapTerm(l) && isHeapTerm(r) =>
+        val s: Heap.HeapSort = getHeapSort(l) match {
+          case Some(heapSort) => heapSort
+          case None => throw new Exception("Could not get the sort of heap term" +
+            "for extensionality")
+        }
+        val extPred = MonoSortedPredicate(s.name + "-eq", Seq(s, s))
+        TryAgain(INot(IAtom(extPred, Seq(l, r))), arg)
+      case _ => KeepArg
+    }
+  }
+
   def postVisit(t : IExpression,
                 arg : Unit,
                 subres : Seq[IExpression]) : IExpression = t match {
