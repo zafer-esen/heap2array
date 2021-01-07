@@ -1872,9 +1872,9 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
       (args map (asRealTerm(op, _)), realType)
     } else {
       val typ = args.head._2
-      if (args exists (_._2 != typ))
-        throw new Parser2InputAbsy.TranslationException(
-          op + " cannot be applied to " + (args map (_._1) mkString ", "))
+      //if (args exists (_._2 != typ))
+      //  throw new Parser2InputAbsy.TranslationException(
+      //    op + " cannot be applied to " + (args map (_._1) mkString ", "))
       (args map asTerm, typ)
     }
 
@@ -1889,10 +1889,10 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
                                   args : Seq[Term],
                                   argTypes : Seq[SMTType]) : Seq[ITerm] = {
     val transArgs = for (a <- args) yield translateTerm(a, 0)
-    if (argTypes != (transArgs map (_._2)))
+    /*if (argTypes != (transArgs map (_._2)))
       throw new TranslationException(
         name + " cannot be applied to arguments of type " +
-          (transArgs map (_._2) mkString ", "))
+          (transArgs map (_._2) mkString ", "))*/
     transArgs map asTerm _
   }
 
@@ -1900,10 +1900,10 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
                                      args : Seq[Term],
                                      argType : SMTType) : IExpression = {
     val transArgs = for (a <- args) yield translateTerm(a, 0)
-    if (!(transArgs forall { case (_, t) => t == argType }))
+    /*if (!(transArgs forall { case (_, t) => t == argType }))
       throw new TranslationException(
         f.name + " cannot be applied to arguments of type " +
-          (transArgs map (_._2) mkString ", "))
+          (transArgs map (_._2) mkString ", "))*/
     (transArgs.iterator map asTerm _) reduceLeft {
       (s, t) => f(s, t)
     }
@@ -1914,10 +1914,10 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
                                   argTypes : Seq[SMTType])
   : (IExpression, SMTType) = {
     val transArgs = for (a <- args) yield translateTerm(a, 0)
-    if (argTypes != (transArgs map (_._2)))
+    /*if (argTypes != (transArgs map (_._2)))
       throw new TranslationException(
         p.name + " cannot be applied to arguments of type " +
-          (transArgs map (_._2) mkString ", "))
+          (transArgs map (_._2) mkString ", "))*/
     (IAtom(p, transArgs map asTerm _), SMTBool)
   }
 
