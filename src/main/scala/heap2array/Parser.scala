@@ -2773,16 +2773,18 @@ class FunPredSubstVisitor(substFuns : CMap[IFunction, IFunction],
 
   private def isHeapTerm(t : ITerm) : Boolean = getHeapSort(t).isDefined
 
+  private def getHeapSort(s : ap.types.Sort) : scala.Option[Heap.HeapSort] =
+    s match {
+          case s: Heap.HeapSort => Some(s)
+          case _ => None
+      }
   private def getHeapSort(t : ITerm) : scala.Option[Heap.HeapSort] = {
     import ap.types.MonoSortedIFunction
     t match {
       case t: IConstant => getHeapSort(t.c)
       case f: IFunApp if f.fun.isInstanceOf[MonoSortedIFunction] =>
-        f.fun.asInstanceOf[MonoSortedIFunction].resSort match {
-          case s: Heap.HeapSort => Some(s)
-          case _ => None
-          case _ => None
-        }
+        getHeapSort(f.fun.asInstanceOf[MonoSortedIFunction].resSort)
+      case t: ISortedVariable => getHeapSort(t.sort)
     }
   }
   private def getHeapSort(t : ap.terfor.Term) : scala.Option[Heap.HeapSort] =
