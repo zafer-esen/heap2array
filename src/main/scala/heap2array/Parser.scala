@@ -915,6 +915,8 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
 
     //////////////////////////////////////////////////////////////////////////
 
+    case _ : SetLogicCommand => // ignore
+
     case _ => println(printer print cmd)
   }}
 
@@ -2785,6 +2787,8 @@ class FunPredSubstVisitor(substFuns : CMap[IFunction, IFunction],
       case f: IFunApp if f.fun.isInstanceOf[MonoSortedIFunction] =>
         getHeapSort(f.fun.asInstanceOf[MonoSortedIFunction].resSort)
       case t: ISortedVariable => getHeapSort(t.sort)
+      case _ : IIntLit => None
+      case _ => None
     }
   }
   private def getHeapSort(t : ap.terfor.Term) : scala.Option[Heap.HeapSort] =

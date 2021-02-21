@@ -223,6 +223,8 @@ class SingleHeapParser(settings : ParserSettings) extends Heap2ArrayParser {
 
       //////////////////////////////////////////////////////////////////////////
 
+      case _: SetLogicCommand => // ignore
+
       case _ => println(printer print cmd)
     }
   }
