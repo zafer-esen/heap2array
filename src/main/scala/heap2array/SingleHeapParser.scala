@@ -182,8 +182,8 @@ class SingleHeapParser(settings : ParserSettings) extends Heap2ArrayParser {
           "(define-fun def" + objName + "    () " + objName + " " + (printer print cmd.term_) + ")\n" +
           "(define-fun valid     ((h " + heapName + ") (p " + addrName + ")) Bool\n" +
           "  (and (>= (" + heapName + "Size h) p) (> p 0)))\n" +
-          "(declare-const allDef" + objName + " (Array " + addrName + " " + objName + "))\n" +
-          "(define-fun empty" + heapName + " () " + heapName + " (" + heapName + "Ctor 0 allDef" + objName + "))\n" +
+          "(define-fun empty" + heapName + " () " + heapName + " (\n" +
+          "  " + heapName + "Ctor 0 " + "(( as const (Array " + addrName + " " + objName + ")) def" + objName + ")))\n" +
           "(define-fun read ((h " + heapName + ") (p " + addrName + ")) " + objName + "\n" +
           "  (ite (valid h p)\n" +
           "       (select (" + heapName + "Contents h) p)\n" +
@@ -195,11 +195,7 @@ class SingleHeapParser(settings : ParserSettings) extends Heap2ArrayParser {
           "(define-fun alloc   ((h " + heapName + ") (o " + objName + ")) AllocRes" + heapName + "\n" +
           "  (AllocRes" + heapName + " (" + heapName + "Ctor (+ 1 (" + heapName + "Size h))\n" +
           "                    (store (" + heapName + "Contents h) (+ 1 (" + heapName + "Size h)) o))\n" +
-          "          (+ 1 (" + heapName + "Size h))))\n" +
-          "(define-fun " + heapName + "-eq     ((h1 " + heapName + ") (h2 " + heapName + ")) Bool\n" +
-          "  (forall ((p " + addrName + "))\n" +
-          "          (and (= (valid h1 p) (valid h2 p))\n" +
-          "               (= (read h1 p) (read h2 p)))))")
+          "          (+ 1 (" + heapName + "Size h))))\n")
 
         println(";" + "=" * 79)
 
@@ -223,7 +219,7 @@ class SingleHeapParser(settings : ParserSettings) extends Heap2ArrayParser {
 
       //////////////////////////////////////////////////////////////////////////
 
-      case _: SetLogicCommand => // ignore
+      //case _: SetLogicCommand => // ignore
 
       case _ => println(printer print cmd)
     }

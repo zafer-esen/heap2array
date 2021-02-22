@@ -757,8 +757,8 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
         "(define-fun def" + objName + "    () " + objName + " " + (printer print cmd.term_) + ")\n" +
         "(define-fun valid" + heapName + "     ((h " + heapName + ") (p " + addrName + ")) Bool\n" +
         "  (and (>= (" + heapName + "Size h) p) (> p 0)))\n" +
-        "(declare-const allDef" + objName + " (Array " + addrName + " " + objName + "))\n" +
-        "(define-fun empty" + heapName + " () " + heapName + " (" + heapName + "Ctor 0 allDef" + objName + "))\n" +
+        "(define-fun empty" + heapName + " () " + heapName + " (\n" +
+        "  " + heapName + "Ctor 0 " + "(( as const (Array " + addrName + " " + objName + ")) def" + objName + ")))\n" +
         "(define-fun read" + heapName + " ((h " + heapName + ") (p " + addrName + ")) " + objName + "\n" +
         "  (ite (valid" + heapName + " h p)\n" +
         "       (select (" + heapName + "Contents h) p)\n" +
@@ -915,7 +915,7 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
 
     //////////////////////////////////////////////////////////////////////////
 
-    case _ : SetLogicCommand => // ignore
+    // case _ : SetLogicCommand => // ignore
 
     case _ => println(printer print cmd)
   }}

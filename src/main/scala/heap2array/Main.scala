@@ -87,7 +87,7 @@ object Main {
     println("Options:")
     println(" [+-]version               Print version and exit                   (default: -)")
     println(" [+-]quiet                 Suppress all output to stderr            (default: -)")
-    println(" [+-]ext                   Encodes extensionality and supports      (default: +)")
+    println(" [+-]ext                   Encodes extensionality and supports      (default: -)")
     println("                           multiple heap declarations, but slower             ")
     println(" -out=filename             Output the problem in SMT-LIB format     (default: \"\")")
   }

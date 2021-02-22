@@ -13,7 +13,7 @@ object Heap2ArrayParams {
   }
   case object EXT extends Param {
     type Value = Boolean
-    val defau : Boolean = true
+    val defau : Boolean = false
   }
   case object OUT extends Param {
     type Value = String
