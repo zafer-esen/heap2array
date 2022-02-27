@@ -25,7 +25,7 @@ lazy val root = (project in file("."))
     // libraryDependencies += scalaTest % Test,
     libraryDependencies += "org.scala-lang" % "scala-library" % scalaVersion.value,
     resolvers += "uuverifiers" at "http://logicrunch.research.it.uu.se/maven/",
-    libraryDependencies += "uuverifiers" %% "princess" % "heap-SNAPSHOT",
-    libraryDependencies += "uuverifiers" %% "princess-smt-parser" % "heap-SNAPSHOT"
+    libraryDependencies += "uuverifiers" %% "princess" % "nightly-SNAPSHOT",
+    libraryDependencies += "uuverifiers" %% "princess-smt-parser" % "nightly-SNAPSHOT"
   )
 

@@ -748,21 +748,21 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
           "))")
       }
 
+      val defObjName = printer print cmd.term_
       // print heap ADTs and operations
       println("(declare-datatypes ((AllocRes" + heapName + " 0) (" + heapName + " 0))\n" +
         "                   (((AllocRes" + heapName + "   (new" + heapName + " " + heapName + ") (new" + addrName + " " + addrName + ")))\n" +
         "                    ((" + heapName + "Ctor (" + heapName + "Size Int)\n" +
         "                               (" + heapName + "Contents (Array " + addrName + " " + objName + "))))))\n" +
         "(define-fun null" + addrName + "  () " + addrName + " 0)\n" +
-        "(define-fun def" + objName + "    () " + objName + " " + (printer print cmd.term_) + ")\n" +
         "(define-fun valid" + heapName + "     ((h " + heapName + ") (p " + addrName + ")) Bool\n" +
         "  (and (>= (" + heapName + "Size h) p) (> p 0)))\n" +
         "(define-fun empty" + heapName + " () " + heapName + " (\n" +
-        "  " + heapName + "Ctor 0 " + "(( as const (Array " + addrName + " " + objName + ")) def" + objName + ")))\n" +
+        "  " + heapName + "Ctor 0 " + "(( as const (Array " + addrName + " " + objName + ")) " + defObjName + ")))\n" +
         "(define-fun read" + heapName + " ((h " + heapName + ") (p " + addrName + ")) " + objName + "\n" +
         "  (ite (valid" + heapName + " h p)\n" +
         "       (select (" + heapName + "Contents h) p)\n" +
-        "       def" + objName + "))\n" +
+        "       " + defObjName + "))\n" +
         "(define-fun write" + heapName + " ((h " + heapName + ") (p " + addrName + ") (o " + objName + ")) " + heapName + "\n" +
         "  (ite (valid" + heapName + " h p)\n" +
         "       (" + heapName + "Ctor (" + heapName + "Size h) (store (" + heapName + "Contents h) p o))\n" +
@@ -1738,8 +1738,8 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
       translateHeapFun(_.alloc,
         args,
         heap => List(objectType(heap)),
-        heap => SMTADT(heap.AllocResADT, 0)).getOrElse(
-        unintFunApp(name, sym, args, polarity))
+        heap => SMTADT(heap.heapADTs, heap.HeapADTSortId.allocResSortId.id)).
+          getOrElse(unintFunApp(name, sym, args, polarity))
 
     case PlainSymbol(name@"read") =>
       translateHeapFun(_.read,
@@ -2490,6 +2490,9 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
       env.addFunction(f, SMTFunctionType(List(smtType.result), arg))
     }
 
+    val ctorId2PerSortId : IndexedSeq[Int] =
+      datatype.ctorIdsPerSort.map(_.length).flatMap(0 until _)
+
     // generate the is- queries as inlined functions
     for ((ctor, ctorNum) <- datatype.constructors.zipWithIndex;
          adtNum = datatype.sortOfCtor(ctorNum);
@@ -2499,7 +2502,7 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
       val query = new IFunction("is-" + ctor.name, 1, true, true)
       env.addFunction(query,
         SMTFunctionType(List(smtDataTypes(adtNum)), SMTBool))
-      val body = ctorIdTerm === datatype.ctorId2PerSortId(ctorNum)
+      val body = ctorIdTerm === ctorId2PerSortId(ctorNum)
       functionDefs = functionDefs + (query -> (body, SMTBool))
     }
   }
@@ -2573,9 +2576,9 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
     // This gets called during the heap theory construction, before the actual
     // construction is complete; so we need to add the heap ADT sorts to the env
     // to be able to construct the defaultObjectTerm.
-    def defObjCtor(objectADT : ADT, allocResADT : ADT) : ITerm = {
-      addADTToEnv(objectADT)
-      addADTToEnv(allocResADT)
+    def defObjCtor(objectCtors : Seq[MonoSortedIFunction],
+                   heapADTs    : ADT) : ITerm = {
+      addADTToEnv(heapADTs)
       asTerm(translateTerm(defaultObjectTerm, -1))
     }
 

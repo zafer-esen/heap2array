@@ -172,22 +172,21 @@ class SingleHeapParser(settings : ParserSettings) extends Heap2ArrayParser {
               printer print decl).mkString("\n" + " " * 19) +
             "))")
         }
-
+        val defObjName = printer print cmd.term_
         // print heap ADTs and operations
         println("(declare-datatypes ((AllocRes" + heapName + " 0) (" + heapName + " 0))\n" +
           "                   (((AllocRes" + heapName + "   (new" + heapName + " " + heapName + ") (new" + addrName + " " + addrName + ")))\n" +
           "                    ((" + heapName + "Ctor (" + heapName + "Size Int)\n" +
           "                               (" + heapName + "Contents (Array " + addrName + " " + objName + "))))))\n" +
           "(define-fun null" + addrName + "  () " + addrName + " 0)\n" +
-          "(define-fun def" + objName + "    () " + objName + " " + (printer print cmd.term_) + ")\n" +
           "(define-fun valid     ((h " + heapName + ") (p " + addrName + ")) Bool\n" +
           "  (and (>= (" + heapName + "Size h) p) (> p 0)))\n" +
           "(define-fun empty" + heapName + " () " + heapName + " (\n" +
-          "  " + heapName + "Ctor 0 " + "(( as const (Array " + addrName + " " + objName + ")) def" + objName + ")))\n" +
+          "  " + heapName + "Ctor 0 " + "(( as const (Array " + addrName + " " + objName + ")) " + defObjName + ")))\n" +
           "(define-fun read ((h " + heapName + ") (p " + addrName + ")) " + objName + "\n" +
           "  (ite (valid h p)\n" +
           "       (select (" + heapName + "Contents h) p)\n" +
-          "       def" + objName + "))\n" +
+          "       " + defObjName + "))\n" +
           "(define-fun write ((h " + heapName + ") (p " + addrName + ") (o " + objName + ")) " + heapName + "\n" +
           "  (ite (valid h p)\n" +
           "       (" + heapName + "Ctor (" + heapName + "Size h) (store (" + heapName + "Contents h) p o))\n" +
