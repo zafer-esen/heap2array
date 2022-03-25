@@ -1,6 +1,6 @@
 package heap2array
 
-import ap.parameters.{Param, ParserSettings}
+import ap.parameters.ParserSettings
 import ap.CmdlMain.NullStream
 import heap2array.SingleHeapParser.MultipleHeapsException
 

@@ -155,14 +155,31 @@ class SingleHeapParser(settings : ParserSettings) extends Heap2ArrayParser {
 
         if (heapDeclCount > 1) throw MultipleHeapsException
 
-        val heapName = asString(cmd.identifier_1)
-        val addrName = asString(cmd.identifier_2)
-        val objName = asString(cmd.identifier_3)
+        val heap = asString(cmd.identifier_1)
+        val addr = asString(cmd.identifier_2)
+        val obj = asString(cmd.identifier_3)
+        val addrRange = addr + "Range"
+        val addrRangeStart = addrRange + "Start"
+        val addrRangeSize = addrRange + "Size"
+        val allocRes = "AllocRes" + heap
+        val newHeap = "new" + heap
+        val newAddr = "new" + addr
+        val batchAllocRes = "Batch" + allocRes
+        val newBatchHeap = "newBatch" + heap
+        val newAddrRange = "new" + addrRange
+        val heapCtor = heap + "Ctor"
+        val heapSize = heap + "Size"
+        val heapContents = heap + "Contents"
+        val nullAddr = "null" + addr
+        val emptyHeap = "empty" + heap
 
         println(";" + "=" * 79)
-        println("; Encoding of " + heapName + " sorts and operations")
+        println("; Encoding of " + heap + " sorts and operations")
         println(";" + "-" * 79)
-        println("(define-sort " + addrName + "() Int)")
+        println("(define-sort " + addr + "() Int)")
+        println("(declare-datatypes ((" + addrRange + " 0))\n" +
+          "                   (((" + addrRange + " (" + addrRangeStart + " " + addr + ") (" + addrRangeSize + " Int)))))\n")
+
 
         // print any ADT declarations that are part of declare-heap
         if (cmd.listpolysortc_ nonEmpty) {
@@ -174,29 +191,53 @@ class SingleHeapParser(settings : ParserSettings) extends Heap2ArrayParser {
         }
         val defObjName = printer print cmd.term_
         // print heap ADTs and operations
-        println("(declare-datatypes ((AllocRes" + heapName + " 0) (" + heapName + " 0))\n" +
-          "                   (((AllocRes" + heapName + "   (new" + heapName + " " + heapName + ") (new" + addrName + " " + addrName + ")))\n" +
-          "                    ((" + heapName + "Ctor (" + heapName + "Size Int)\n" +
-          "                               (" + heapName + "Contents (Array " + addrName + " " + objName + "))))))\n" +
-          "(define-fun null" + addrName + "  () " + addrName + " 0)\n" +
-          "(define-fun valid     ((h " + heapName + ") (p " + addrName + ")) Bool\n" +
-          "  (and (>= (" + heapName + "Size h) p) (> p 0)))\n" +
-          "(define-fun empty" + heapName + " () " + heapName + " (\n" +
-          "  " + heapName + "Ctor 0 " + "(( as const (Array " + addrName + " " + objName + ")) " + defObjName + ")))\n" +
-          "(define-fun read ((h " + heapName + ") (p " + addrName + ")) " + objName + "\n" +
-          "  (ite (valid h p)\n" +
-          "       (select (" + heapName + "Contents h) p)\n" +
-          "       " + defObjName + "))\n" +
-          "(define-fun write ((h " + heapName + ") (p " + addrName + ") (o " + objName + ")) " + heapName + "\n" +
-          "  (ite (valid h p)\n" +
-          "       (" + heapName + "Ctor (" + heapName + "Size h) (store (" + heapName + "Contents h) p o))\n" +
-          "       h))\n" +
-          "(define-fun alloc   ((h " + heapName + ") (o " + objName + ")) AllocRes" + heapName + "\n" +
-          "  (AllocRes" + heapName + " (" + heapName + "Ctor (+ 1 (" + heapName + "Size h))\n" +
-          "                    (store (" + heapName + "Contents h) (+ 1 (" + heapName + "Size h)) o))\n" +
-          "          (+ 1 (" + heapName + "Size h))))\n")
+        println(
+          "(declare-datatypes ((" + batchAllocRes + " 0) (" + allocRes + " 0) (" + heap + " 0))\n" +
+          "                   (((" + batchAllocRes + "   (" + newBatchHeap + " " + heap + ") (" + newAddrRange + " " + addrRange + ")))\n" +
+          "                   ((" + allocRes + "   (" + newHeap + " " + heap + ") (" + newAddr + " " + addr + ")))\n" +
+          "                    ((" + heapCtor + " (" + heapSize + " Int)\n" +
+          "                               (" + heapContents + " (Array " + addr + " " + obj + "))))))\n" +
 
-        println(";" + "=" * 79)
+          "(define-fun " + nullAddr + "  () " + addr + " 0)\n" +
+
+          "(define-fun valid     ((h " + heap + ") (p " + addr + ")) Bool\n" +
+          "  (and (>= (" + heapSize + " h) p) (> p 0)))\n" +
+
+          "(define-fun " + emptyHeap + " () " + heap + " (\n" +
+          "  " + heap + "Ctor 0 " + "(( as const (Array " + addr + " " + obj + ")) " + defObjName + ")))\n" +
+
+          "(define-fun read ((h " + heap + ") (p " + addr + ")) " + obj + "\n" +
+          "  (ite (valid h p)\n" +
+          "       (select (" + heapContents + " h) p)\n" +
+          "       " + defObjName + "))\n" +
+
+          "(define-fun write ((h " + heap + ") (p " + addr + ") (o " + obj + ")) " + heap + "\n" +
+          "  (ite (valid h p)\n" +
+          "       (" + heap + "Ctor (" + heap + "Size h) (store (" + heapContents + " h) p o))\n" +
+          "       h))\n" +
+
+          "(define-fun alloc   ((h " + heap + ") (o " + obj + ")) " + allocRes + "\n" +
+          "  (" + allocRes + " (" + heapCtor + " (+ 1 (" + heapSize + " h))\n" +
+          "                    (store (" + heapContents + " h) (+ 1 (" + heapSize + " h)) o))\n" +
+          "          (+ 1 (" + heapSize + " h))))\n" // +
+
+//          "(define-fun nth" + addrRange + "((ar " + addrRange + ") (n " + "Int" + ")) " + addr + "\n" +
+//          "  (ite (and (>= n 0) (< n (" + addrRangeSize + " ar)))\n" +
+//          "       (+ (" + addrRangeStart + " ar) n)" +
+//          "       " + nullAddr + "))" +
+//
+//          " (define-fun within ((ar " + addrRange + " ) (p " + addr + ")) Bool\n" +
+//          "  (and (>= p (" + addrRangeStart + " ar)) (< p (+ (" + addrRangeStart + " ar) (" + addrRangeSize + " ar)))))\n" +
+//
+//          "(define-fun-rec batchAllocLoop ((h " + heap + ") (o " + obj + ") (n Int) (bar " + batchAllocRes + ")) " + batchAllocRes + "\n" +
+//          "  (ite (> n 0)\n"+
+//          "  (batchAllocLoop (" + newHeap + " (alloc h o)) o (- n 1) (" + batchAllocRes + " (" + newHeap + " (alloc h o)) (" + newAddrRange + " bar) ))\n" +
+//          "  bar))\n" +
+//
+//          "(define-fun batchAlloc ((h " + heap + ") (o " + obj + ") (n Int)) " + batchAllocRes + "\n" +
+//          "  (batchAllocLoop h o n ("+batchAllocRes+" h ("+addrRange+" (+ 1 ("+heapSize+" h)) n))))\n"
+        )
+          println(";" + "=" * 79)
 
       /*case cmd : PushCommand => // todo: are these two needed?
       for (_ <- 0 until cmd.numeral_.toInt)

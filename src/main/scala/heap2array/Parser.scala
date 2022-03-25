@@ -12,11 +12,14 @@ import ap.terfor.preds.Predicate
 import ap.parser._
 import ap.parser.smtlib._
 import ap.parser.smtlib.Absyn._
-import ap.util.{Debug, PlainRange}
+import ap.util.PlainRange
 
 import scala.collection.mutable.{ArrayBuffer, HashMap => MHashMap, HashSet => MHashSet}
 import scala.collection.immutable.{Map => CMap}
-import ap.parser.SMTParser2InputAbsy.{BoundVariable, SMTADT, SMTArray, SMTBitVec, SMTBool, SMTBoolVariableType, SMTChar, SMTFunctionType, SMTHeap, SMTHeapAddress, SMTInteger, SMTReal, SMTRegLan, SMTString, SMTType, SMTUnint, SubstExpression, VariableType}
+import ap.parser.SMTParser2InputAbsy.{BoundVariable, SMTADT, SMTArray,
+  SMTBitVec, SMTBool, SMTBoolVariableType, SMTChar, SMTFunctionType, SMTHeap,
+  SMTHeapAddress, SMTInteger, SMTReal, SMTRegLan, SMTString, SMTType, SMTUnint,
+  SubstExpression, VariableType}
 
 import scala.util.matching.Regex
 
@@ -551,6 +554,29 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
   private val heapFunMap  = new MHashMap[IFunction, IFunction]
   private val heapPredMap = new MHashMap[Predicate, Predicate]
 
+  class HeapPredicates (val heap : Heap) {
+    val heapName = heap.HeapSort.name
+    val batchAllocPre =
+      new MonoSortedPredicate("batchAlloc" + heapName,
+        Seq(heap.HeapSort, heap.HeapSort, heap.ObjectSort, ap.types.Sort.Nat,
+            ap.types.Sort.Nat))
+    val batchAllocPost = new MonoSortedPredicate("batchAllocPost" + heapName,
+        Seq(heap.HeapSort, heap.HeapSort, heap.ObjectSort, ap.types.Sort.Nat))
+    val batchWritePre = new MonoSortedPredicate("batchWrite" + heapName,
+      Seq(heap.HeapSort, heap.HeapSort, heap.AddressSort, heap.AddressSort,
+          heap.ObjectSort, ap.types.Sort.Nat, ap.types.Sort.Nat))
+    val batchWritePost = new MonoSortedPredicate("batchWritePost" + heapName,
+      Seq(heap.HeapSort, heap.HeapSort, heap.AddressSort, heap.ObjectSort,
+          ap.types.Sort.Nat))
+  }
+  // given a heap H, extract newly added predicates
+  private val heap2HeapPreds = new MHashMap[Heap, HeapPredicates]
+
+  // keeps track of new assertions to add, used mainly for asserting the
+  // pre-condition of batchAlloc and batchWrite operations
+  private val assertionsToAdd = new ArrayBuffer[IFormula]
+  private val guardsToAdd = new ArrayBuffer[IFormula]
+
   // Information about partitions used for interpolation
   private var nextPartitionNumber : Int = 0
   private var partNameIndexes = Map[PartName, Int]()
@@ -708,9 +734,23 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
     case cmd : HeapDeclCommand =>
       ensureEnvironmentCopy
 
-      val heapName = asString(cmd.identifier_1)
-      val addrName = asString(cmd.identifier_2)
-      val objName  = asString(cmd.identifier_3)
+      val heap = asString(cmd.identifier_1)
+      val addr = asString(cmd.identifier_2)
+      val obj  = asString(cmd.identifier_3)
+      val addrRange = addr + "Range"
+      val addrRangeStart = addrRange + "Start"
+      val addrRangeSize = addrRange + "Size"
+      val allocRes = "AllocRes" + heap
+      val newHeap = "new" + heap
+      val newAddr = "new" + addr
+      val batchAllocRes = "Batch" + allocRes
+      val newBatchHeap = "newBatch" + heap
+      val newAddrRange = "new" + addrRange
+      val heapCtor = heap + "Ctor"
+      val heapSize = heap + "Size"
+      val heapContents = heap + "Contents"
+      val nullAddr = "null" + addr
+      val emptyHeap = "empty" + heap
 
       val ADTSortNames =
         for (sortc <- cmd.listpolysortc_) yield {
@@ -730,14 +770,16 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
               throw new Parser2InputAbsy.TranslationException(
                 "Polymorphic algebraic data-types are not supported yet")
           }
-          translateHeapCtorList(ADTSortNames, addrName, sortNum,
+          translateHeapCtorList(ADTSortNames, addr, sortNum,
             decl.listconstructordeclc_)
         }
 
       println(";" + "="*79)
-      println("; Encoding of " + heapName + " sorts and operations")
+      println("; Encoding of " + heap + " sorts and operations")
       println(";" + "-"*79)
-      println("(define-sort " + addrName + "() Int)")
+      println("(define-sort " + addr + "() Int)") // todo: this would lead to multiple addr decls in case of more than one heap
+      println("(declare-datatypes ((" + addrRange + " 0))\n" +
+              "                   (((" + addrRange + " (" + addrRangeStart + " " + addr + ") (" + addrRangeSize + " Int)))))\n")
 
       // print any ADT declarations that are part of declare-heap
       if (cmd.listpolysortc_ nonEmpty) {
@@ -750,33 +792,85 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
 
       val defObjName = printer print cmd.term_
       // print heap ADTs and operations
-      println("(declare-datatypes ((AllocRes" + heapName + " 0) (" + heapName + " 0))\n" +
-        "                   (((AllocRes" + heapName + "   (new" + heapName + " " + heapName + ") (new" + addrName + " " + addrName + ")))\n" +
-        "                    ((" + heapName + "Ctor (" + heapName + "Size Int)\n" +
-        "                               (" + heapName + "Contents (Array " + addrName + " " + objName + "))))))\n" +
-        "(define-fun null" + addrName + "  () " + addrName + " 0)\n" +
-        "(define-fun valid" + heapName + "     ((h " + heapName + ") (p " + addrName + ")) Bool\n" +
-        "  (and (>= (" + heapName + "Size h) p) (> p 0)))\n" +
-        "(define-fun empty" + heapName + " () " + heapName + " (\n" +
-        "  " + heapName + "Ctor 0 " + "(( as const (Array " + addrName + " " + objName + ")) " + defObjName + ")))\n" +
-        "(define-fun read" + heapName + " ((h " + heapName + ") (p " + addrName + ")) " + objName + "\n" +
-        "  (ite (valid" + heapName + " h p)\n" +
-        "       (select (" + heapName + "Contents h) p)\n" +
-        "       " + defObjName + "))\n" +
-        "(define-fun write" + heapName + " ((h " + heapName + ") (p " + addrName + ") (o " + objName + ")) " + heapName + "\n" +
-        "  (ite (valid" + heapName + " h p)\n" +
-        "       (" + heapName + "Ctor (" + heapName + "Size h) (store (" + heapName + "Contents h) p o))\n" +
-        "       h))\n" +
-        "(define-fun alloc" + heapName + "   ((h " + heapName + ") (o " + objName + ")) AllocRes" + heapName + "\n" +
-        "  (AllocRes" + heapName + " (" + heapName + "Ctor (+ 1 (" + heapName + "Size h))\n" +
-        "                    (store (" + heapName + "Contents h) (+ 1 (" + heapName + "Size h)) o))\n" +
-        "          (+ 1 (" + heapName + "Size h))))\n" +
-        "(define-fun " + heapName + "-eq     ((h1 " + heapName + ") (h2 " + heapName + ")) Bool\n" +
-        "  (forall ((p " + addrName + "))\n" +
-        "          (and (= (valid" + heapName + " h1 p) (valid" + heapName + " h2 p))\n" +
-        "               (= (read" + heapName + " h1 p) (read" + heapName + " h2 p)))))")
+      println(
+        "(declare-datatypes ((" + batchAllocRes + " 0) (" + allocRes + " 0) (" + heap + " 0))\n" +
+        "                   (((" + batchAllocRes + "   (" + newBatchHeap + " " + heap + ") (" + newAddrRange + " " + addrRange + ")))\n" +
+        "                   ((" + allocRes + "   (" + newHeap + " " + heap + ") (" + newAddr + " " + addr + ")))\n" +
+        "                    ((" + heapCtor + " (" + heapSize + " Int)\n" +
+        "                               (" + heapContents + " (Array " + addr + " " + obj + "))))))\n" +
 
-      setupHeap(heapName, addrName, objName, ADTSortNames,
+        "(define-fun null" + addr + "  () " + addr + " 0)\n" +
+
+        "(define-fun valid" + heap + "     ((h " + heap + ") (p " + addr + ")) Bool\n" +
+        "  (and (>= (" + heap + "Size h) p) (> p 0)))\n" +
+
+        "(define-fun empty" + heap + " () " + heap + " (\n" +
+        "  " + heap + "Ctor 0 " + "(( as const (Array " + addr + " " + obj + ")) " + defObjName + ")))\n" +
+
+        "(define-fun read" + heap + " ((h " + heap + ") (p " + addr + ")) " + obj + "\n" +
+        "  (ite (valid" + heap + " h p)\n" +
+        "       (select (" + heap + "Contents h) p)\n" +
+        "       " + defObjName + "))\n" +
+
+        "(define-fun write" + heap + " ((h " + heap + ") (p " + addr + ") (o " + obj + ")) " + heap + "\n" +
+        "  (ite (valid" + heap + " h p)\n" +
+        "       (" + heap + "Ctor (" + heap + "Size h) (store (" + heap + "Contents h) p o))\n" +
+        "       h))\n" +
+
+        "(define-fun alloc" + heap + "   ((h " + heap + ") (o " + obj + ")) AllocRes" + heap + "\n" +
+        "  (AllocRes" + heap + " (" + heap + "Ctor (+ 1 (" + heap + "Size h))\n" +
+        "                    (store (" + heap + "Contents h) (+ 1 (" + heap + "Size h)) o))\n" +
+        "          (+ 1 (" + heap + "Size h))))\n" +
+
+        "(define-fun " + heap + "-eq     ((h1 " + heap + ") (h2 " + heap + ")) Bool\n" +
+        "  (forall ((p " + addr + "))\n" +
+        "          (and (= (valid" + heap + " h1 p) (valid" + heap + " h2 p))\n" +
+        "               (= (read" + heap + " h1 p) (read" + heap + " h2 p)))))\n" +
+
+        "(define-fun nth" + addrRange + "((ar " + addrRange + ") (n " + "Int" + ")) " + addr + "\n" +
+        "  (ite (and (>= n 0) (< n (" + addrRangeSize + " ar)))\n" +
+        "       (+ (" + addrRangeStart + " ar) n)\n" +
+        "       " + nullAddr + "))\n" +
+
+        "(define-fun within" + heap + " ((ar " + addrRange + " ) (p " + addr + ")) Bool\n" +
+        "  (and (>= p (" + addrRangeStart + " ar)) (< p (+ (" + addrRangeStart + " ar) (" + addrRangeSize + " ar)))))\n"
+      )
+
+      // encoding of batchAlloc
+      println(
+        "(declare-fun batchAlloc" + heap + "     ("+heap+" "+heap+" "+obj+" Int Int) Bool)\n" +
+        "(declare-fun batchAllocPost" + heap + " ("+heap+" "+heap+" "+obj+" Int) Bool)\n"
+      )
+      println(
+//        "(assert (forall ((h "+heap+") (o "+obj+") (n Int))\n" +
+//        "                (=> (<= n 0)\n" +
+//        "                   (batchAlloc"+heap+" "+emptyHeap+" "+emptyHeap+" "+defObjName+" 0 0))))\n" +
+        "(assert (forall ((h1 "+heap+") (h2 "+heap+") (o "+obj+") (n1 Int) (n2 Int))\n" +
+        "                (=> (and (> n2 0) (batchAlloc"+heap+" h1 h2 o n1 n2))\n" +
+        "                   (batchAlloc"+heap+" h1 ("+newHeap+" (alloc"+heap+" h2 o)) o n1 (- n2 1)))))\n" +
+        "(assert (forall ((h1 "+heap+") (h2 "+heap+") (o "+obj+") (n1 Int) (n2 Int))\n" +
+        "                (=> (and (<= n2 0) (batchAlloc"+heap+" h1 h2 o n1 n2))\n" +
+        "                   (batchAllocPost"+heap+" h1 h2 o n1))))\n"
+      )
+
+      // encoding of batchWrite
+      println(
+        "(declare-fun batchWrite"+heap+"     ("+heap+" "+heap+" "+addr+" "+addr+" "+obj+" Int Int) Bool)\n" +
+        "(declare-fun batchWritePost"+heap+" ("+heap+" "+heap+" "+addr+" "+obj+" Int) Bool)\n"
+      )
+      println(
+//        "(assert (forall ((n Int))\n" +
+//        "                (=> (<= n 0)\n" +
+//        "                   (batchWrite"+heap+" empty"+heap+" empty"+heap+" null"+addr+" null"+addr+" "+defObjName+" 0 0))))\n" +
+        "(assert (forall ((h1 "+heap+") (h2 "+heap+") (a1 "+addr+") (a2 "+addr+") (o "+obj+") (n1 Int) (n2 Int))\n" +
+        "                (=> (and (> n2 0) (batchWrite"+heap+" h1 h2 a1 a2 o n1 n2))\n" +
+        "                   (batchWrite"+heap+" h1 (write"+heap+" h2 a2 o) a1 (+ a2 1) o n1 (- n2 1)))))\n" +
+        "(assert (forall ((h1 "+heap+") (h2 "+heap+") (a1 "+addr+") (a2 "+addr+") (o "+obj+") (n1 Int) (n2 Int))\n" +
+        "                (=> (and (<= n2 0) (batchWrite"+heap+" h1 h2 a1 a2 o n1 n2))\n" +
+        "                   (batchWritePost"+heap+" h1 h2 a1 o n1))))\n"
+      )
+
+      setupHeap(heap, addr, obj, ADTSortNames,
         allCtors, cmd.term_)
       println(";" + "="*79)
 
@@ -905,9 +999,52 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
 
     case cmd : AssertCommand =>
       val f = asFormula(translateTerm(cmd.term_, -1))
-      print("(assert ")
-      SMTLineariser(FunPredSubstVisitor(f, heapFunMap.toMap, heapPredMap.toMap))
-      println(")")
+
+      def extractClause (clause : IExpression, quantifierSorts : List[ap.types.Sort]) :
+      (IFormula, IFormula, List[ap.types.Sort]) = {
+        clause match {
+          case ISortedQuantified(Quantifier.ALL, sort, subF) =>
+            extractClause(subF, sort :: quantifierSorts)
+          case IQuantified(Quantifier.ALL, subF) =>
+            extractClause(subF, ap.types.Sort.Integer :: quantifierSorts)
+          case IBinFormula(IBinJunctor.Or, left, right) =>
+            left match {
+              case INot(body) =>
+                (right, body, quantifierSorts)
+              case _ =>
+                throw new TranslationException("Not a proper clause " + clause)
+            }
+          case _ =>
+            throw new TranslationException("Not a proper clause " + clause)
+        }
+      }
+
+      if (assertionsToAdd.isEmpty && guardsToAdd.isEmpty) {
+        print("(assert ")
+        SMTLineariser(FunPredSubstVisitor(f, heapFunMap.toMap, heapPredMap.toMap))
+        println(")")
+      } else {
+        val (head, body, quantifierSorts) = extractClause(f, Nil)
+
+        // add original clause augmented with the guards
+        print("(assert ")
+        val clauseWithGuards = IExpression.all(quantifierSorts,
+            (guardsToAdd.reduceRight(_ &&& _) &&& body) ==> head)
+        SMTLineariser(FunPredSubstVisitor(clauseWithGuards,
+          heapFunMap.toMap, heapPredMap.toMap))
+        println(")")
+
+        // then add original clause(/guards of this assertion) ==> assertion for each assertion
+        for((assertion, i) <- assertionsToAdd.zipWithIndex) {
+          val newClause =
+            IExpression.all(quantifierSorts, body ==> assertion)
+          print("(assert ")
+          SMTLineariser(FunPredSubstVisitor(newClause, heapFunMap.toMap, heapPredMap.toMap))
+          println(")")
+        }
+      }
+      assertionsToAdd.clear
+      guardsToAdd.clear
 
     //////////////////////////////////////////////////////////////////////////
 
@@ -1215,15 +1352,49 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
 
     case PlainSymbol("=") =>
       val transArgs = for (a <- args) yield translateTerm(a, 0)
-      (if (transArgs forall (_._2 == SMTBool)) {
-        and(for (Seq(a, b) <- (transArgs map asFormula) sliding 2)
-          yield a <===> b)
-      } else {
-        val (termArgs, typ) = asRealIntOtherTerms("=", transArgs)
-        and(for (Seq(a, b) <- termArgs sliding 2)
-          yield translateEq(a, b, typ, polarity))
-      },
-        SMTBool)
+      def defaultCase = {
+        (if (transArgs forall (_._2 == SMTBool)) {
+          and(for (Seq(a, b) <- (transArgs map asFormula) sliding 2)
+            yield a <===> b)
+        } else {
+          val (termArgs, typ) = asRealIntOtherTerms("=", transArgs)
+          and(for (Seq(a, b) <- termArgs sliding 2)
+            yield translateEq(a, b, typ, polarity))
+        },
+          SMTBool)
+      }
+      if(transArgs.size == 2) {
+        (transArgs(0), transArgs(1)) match {
+          case ((h2@(ISortedVariable(_, _)), SMTHeap(heap)), rhs) =>
+            rhs match {
+              case (IFunApp(heap.newBatchHeap, rhsArgs), SMTHeap(_)) =>
+                rhsArgs.head match {
+                  case IFunApp(heap.batchAlloc, Seq (h1, o, n) ) =>
+                    // assert pre
+                    assertionsToAdd +=
+                      heap2HeapPreds(heap).batchAllocPre(h1, h1, o, n, n)
+                    guardsToAdd +=
+                      heap2HeapPreds(heap).batchAllocPost(h1, h2, o, n)
+                    // assume post by replacing this formula
+                    //(heap2HeapPreds(heap).batchAllocPost (h2), SMTBool)
+                    (i(true), SMTBool) // add a placeholder, we will add this formula later
+                  case _ => defaultCase
+                }
+              case (IFunApp(heap.batchWrite, Seq (h1, ar, o)), SMTHeap(_)) =>
+                // assert  batchWrite(h1, addrRangeStart(ar), o, addrRangeSize(ar))
+                assertionsToAdd += heap2HeapPreds(heap).batchWritePre(
+                  h1, h1, heap.addrRangeStart(ar), heap.addrRangeStart(ar),
+                  o, heap.addrRangeSize(ar), heap.addrRangeSize(ar))
+                // assume batchWritePost(h2)
+                guardsToAdd += heap2HeapPreds(heap).batchWritePost(
+                  h1, h2, heap.addrRangeStart(ar), o, heap.addrRangeSize(ar))
+                //(heap2HeapPreds(heap).batchWritePost(h2), SMTBool)
+                (i(true), SMTBool) // add a placeholder, we will add this formula later
+              case _ => defaultCase
+            }
+          case _ => defaultCase
+        }
+      } else defaultCase
 
     case PlainSymbol("distinct") =>
       val transArgs = for (a <- args) yield translateTerm(a, 0)
@@ -1717,43 +1888,78 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
 
     case PlainSymbol(name@"valid") =>
       extractHeap(args) match {
-        case Some((heapTerm, heapTheory)) =>
+        case Some((Some(heapTerm), heapTheory)) => {
           val argTypes  = List(SMTHeapAddress(heapTheory))
           val transArgs = for (a <- args.tail) yield translateTerm(a, 0)
 
           if (argTypes != (transArgs map (_._2)))
             throw new TranslationException(
               name + " cannot be applied to arguments of type " +
-                heapTheory.HeapSort + ", " +
-                (transArgs map (_._2) mkString ", "))
+              heapTheory.HeapSort + ", " +
+              (transArgs map (_._2) mkString ", "))
 
           (IAtom(heapTheory.isAlloc,
-            List(heapTerm) ++ (transArgs map asTerm _)),
-            SMTBool)
-        case None =>
+                 List(heapTerm) ++ (transArgs map (asTerm(_)))),
+           SMTBool)
+        }
+        case _ =>
           unintFunApp(name, sym, args, polarity)
       }
 
     case PlainSymbol(name@"alloc") =>
       translateHeapFun(_.alloc,
+                       args,
+                       heap => List(objectType(heap)),
+                       heap => SMTADT(heap.heapADTs, heap.HeapADTSortId.allocResSortId.id)).getOrElse(
+      unintFunApp(name, sym, args, polarity))
+
+    case PlainSymbol(name@"batchAlloc") =>
+      translateHeapFun(_.batchAlloc,
         args,
-        heap => List(objectType(heap)),
-        heap => SMTADT(heap.heapADTs, heap.HeapADTSortId.allocResSortId.id)).
-          getOrElse(unintFunApp(name, sym, args, polarity))
+        heap => List(objectType(heap), SMTInteger),
+        heap => SMTADT(heap.heapADTs,
+                       heap.HeapADTSortId.batchAllocResSortId.id)).getOrElse(
+        unintFunApp(name, sym, args, polarity))
 
     case PlainSymbol(name@"read") =>
       translateHeapFun(_.read,
-        args,
-        heap => List(SMTHeapAddress(heap)),
-        objectType).getOrElse(
-        unintFunApp(name, sym, args, polarity))
+                       args,
+                       heap => List(SMTHeapAddress(heap)),
+                       objectType(_)).getOrElse(
+      unintFunApp(name, sym, args, polarity))
 
     case PlainSymbol(name@"write") =>
       translateHeapFun(_.write,
-        args,
-        heap => List(SMTHeapAddress(heap), objectType(heap)),
-        SMTHeap).getOrElse(
+                       args,
+                       heap => List(SMTHeapAddress(heap), objectType(heap)),
+                       SMTHeap(_)).getOrElse(
+      unintFunApp(name, sym, args, polarity))
+
+    case PlainSymbol(name@"batchWrite") =>
+      translateHeapFun(
+          _.batchWrite,
+          args,
+          heap => List(SMTADT(heap.heapADTs,
+                   heap.HeapADTSortId.addressRangeSortId.id), objectType(heap)),
+          SMTHeap(_)).getOrElse(
         unintFunApp(name, sym, args, polarity))
+
+    case PlainSymbol(name@"within") =>
+      extractHeap(args) match {
+        case Some((_, heap)) => {
+          val argTypes  = List(SMTADT(heap.heapADTs,
+            heap.HeapADTSortId.addressRangeSortId.id), SMTHeapAddress(heap))
+          val transArgs = for (a <- args) yield translateTerm(a, 0)
+
+          if (argTypes != (transArgs map (_._2)))
+            throw new TranslationException(
+              name + " cannot be applied to arguments of type " +
+                (transArgs map (_._2) mkString ", "))
+          (IAtom(heap.within, (transArgs map (asTerm(_)))), SMTBool)
+        }
+        case None =>
+          unintFunApp(name, sym, args, polarity)
+      }
 
     ////////////////////////////////////////////////////////////////////////////
     // Declared symbols from the environment
@@ -1812,8 +2018,26 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
               translatedArgs = asTerm(translateTerm(a, 0)) :: translatedArgs
             (VariableSubstVisitor(body, (translatedArgs, 0)), t)
           case None =>
-            (IFunApp(fun, for (a <- args) yield asTerm(translateTerm(a, 0))),
-              resultType)
+            id match {
+              case "newAddrRange" => // only works for "newAddrRange(batchAlloc(h, o, n)))"
+                extractHeap(args) match {
+                  case Some(res) =>
+                    val heap = res._2
+                    translateTerm(args.head, 0)._1 match {
+                      case IFunApp(heap.batchAlloc, args) =>
+                        val Seq(h, _, n) = args
+                        (heap.addressRangeCtor(
+                          IExpression.ite(n > 0, heap.counter(h)+1, heap.counter(h)), n), resultType)
+                      case _ =>
+                        throw new TranslationException("Could not determine heap for addrRange")
+                    }
+                  case _ =>
+                    throw new TranslationException("Could not determine heap for addrRange")
+                }
+              case _ =>
+                (IFunApp(fun, for (a <- args) yield asTerm(translateTerm(a, 0))),
+                  resultType)
+            }
         }
 
       case Environment.Constant(c, _, t) =>
@@ -2592,51 +2816,64 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
     // Add heap functions to the environment
 
     // Some of the heap functions are overloaded, and have to be handled
-    // directly in symApp: alloc, read, write, valid
+    // directly in symApp: alloc, batchAlloc, read, write, batchWrite,
+    //     and predicates: valid, within
 
-    for (fun <- List(heap.emptyHeap, heap.allocHeap, heap.nullAddr,
-      heap.counter, heap.nthAddr)) {
+    for (fun <- List(heap.emptyHeap, heap.allocHeap, heap.allocAddr,
+                     heap.nullAddr,  heap.counter, heap.nthAddr,
+                     heap.batchAllocHeap, heap.batchAllocAddrRange, heap.nth)) {
       val smtArgSorts = (for (arg <- fun.argSorts) yield
         SMTLineariser.sort2SMTType(arg)._1).toList
       env.addFunction(fun, SMTFunctionType(smtArgSorts,
-        SMTLineariser.sort2SMTType(fun.resSort)._1))
+                             SMTLineariser.sort2SMTType(fun.resSort)._1))
     }
 
     for (f <- heap.functions if
       !(f.name endsWith heapSortName) &&
-      !(f.name endsWith addressSortName)){
+      !(f.name endsWith addressSortName) && f != heap.nth){
       heapFunMap.put(f, MonoSortedIFunction(f.name + heap.HeapSort.name,
         f.argSorts, f.resSort, f.partial, f.relational))
     }
+    heapFunMap.put(heap.counter, // replace counter with heapSize
+      MonoSortedIFunction(heap.HeapSort.name + "Size", Seq(heap.HeapSort),
+        heap.counter.resSort, false, false))
     for (p <- heap.predefPredicates if
       !(p.name endsWith heapSortName) &&
       !(p.name endsWith addressSortName)){
       heapPredMap.put(p, MonoSortedPredicate(p.name + heap.HeapSort.name,
         p.argSorts))
     }
+    heap2HeapPreds += ((heap, new HeapPredicates(heap)))
 
     addTheory(heap)
   }
-
-  protected def extractHeap(args : Seq[Term])
-  : scala.Option[(ITerm, Heap)] =
+  // extracts the heap theory given a sequence of terms, and possibly the heap
+  // term if it is in the arguments (as the head)
+  protected def extractHeap(args : Seq[Term]) :
+    scala.Option[(scala.Option[ITerm], Heap)] =
     args match {
-      case Seq(arg0, _*) =>
-        val p@(_, s) = translateTerm(arg0, 0)
+      case Seq(arg0, _*) => {
+        val p@(t, s) = translateTerm(arg0, 0)
         s match {
-          case SMTHeap(heapTheory) => Some((asTerm(p), heapTheory))
-          case _                   => None
+          case SMTHeap(heapTheory)  => Some((Some(asTerm(p)), heapTheory))
+          case SMTADT(adt, sortNum) => // if this is one of the heapADTs
+            adt.sorts(sortNum) match {
+              case Heap.HeapSortExtractor(heap) =>
+                Some((None, heap))
+              case _ => None
+            }
+          case _ => None
         }
-      case _ =>
-        None
+      }
+      case _ => None
     }
 
   protected def translateHeapFun(funF      : Heap => IFunction,
                                  args      : Seq[Term],
                                  argTypesF : Heap => Seq[SMTType],
                                  resTypeF  : Heap => SMTType)
-  : scala.Option[(IExpression, SMTType)] =
-    for ((heapTerm, heapTheory) <- extractHeap(args)) yield {
+                               : scala.Option[(IExpression, SMTType)] =
+    for ((Some(heapTerm), heapTheory) <- extractHeap(args)) yield {
       val fun       = funF(heapTheory)
       val argTypes  = argTypesF(heapTheory)
       val transArgs = for (a <- args.tail) yield translateTerm(a, 0)
@@ -2644,11 +2881,11 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
       if (argTypes != (transArgs map (_._2)))
         throw new TranslationException(
           fun.name + " cannot be applied to arguments of type " +
-            heapTheory.HeapSort + ", " +
-            (transArgs map (_._2) mkString ", "))
+          heapTheory.HeapSort + ", " +
+          (transArgs map (_._2) mkString ", "))
 
-      (IFunApp(fun, List(heapTerm) ++ (transArgs map asTerm _)),
-        resTypeF(heapTheory))
+      (IFunApp(fun, List(heapTerm) ++ (transArgs map (asTerm(_)))),
+       resTypeF(heapTheory))
     }
 
   protected def objectType(heapTheory : Heap) : SMTType =
