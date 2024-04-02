@@ -2,7 +2,7 @@ package heap2array
 
 import ap.Signature
 import ap.parameters.ParserSettings
-import ap.parser.SMTParser2InputAbsy._
+import ap.parser.SMTParsingUtils._
 import ap.parser._
 import ap.parser.smtlib.Absyn._
 import ap.parser.smtlib._
@@ -219,7 +219,14 @@ class SingleHeapParser(settings : ParserSettings) extends Heap2ArrayParser {
           "(define-fun alloc   ((h " + heap + ") (o " + obj + ")) " + allocRes + "\n" +
           "  (" + allocRes + " (" + heapCtor + " (+ 1 (" + heapSize + " h))\n" +
           "                    (store (" + heapContents + " h) (+ 1 (" + heapSize + " h)) o))\n" +
-          "          (+ 1 (" + heapSize + " h))))\n" // +
+          "          (+ 1 (" + heapSize + " h))))\n" +
+
+          s"(define-fun alloc$heap ((h $heap) (o $obj)) $heap\n" +
+          s"  ($heapCtor (+ 1 ($heapSize h))\n" +
+          s"                    (store ($heapContents h) (+ 1 ($heapSize h)) o)))\n" +
+
+          s"(define-fun alloc$addr ((h " + heap + ") (o " + obj + s")) $addr\n" +
+          s"  (+ 1 ($heapSize h)))\n"
 
 //          "(define-fun nth" + addrRange + "((ar " + addrRange + ") (n " + "Int" + ")) " + addr + "\n" +
 //          "  (ite (and (>= n 0) (< n (" + addrRangeSize + " ar)))\n" +

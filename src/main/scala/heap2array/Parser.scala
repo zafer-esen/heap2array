@@ -16,10 +16,8 @@ import ap.util.PlainRange
 
 import scala.collection.mutable.{ArrayBuffer, HashMap => MHashMap, HashSet => MHashSet}
 import scala.collection.immutable.{Map => CMap}
-import ap.parser.SMTParser2InputAbsy.{BoundVariable, SMTADT, SMTArray,
-  SMTBitVec, SMTBool, SMTBoolVariableType, SMTChar, SMTFunctionType, SMTHeap,
-  SMTHeapAddress, SMTInteger, SMTReal, SMTRegLan, SMTString, SMTType, SMTUnint,
-  SubstExpression, VariableType}
+import ap.parser.SMTParser2InputAbsy._
+import ap.parser.SMTTypes._
 
 import scala.util.matching.Regex
 
@@ -241,7 +239,7 @@ object SMTParser2InputAbsy {
       asString(id.symbol_)
     case id : IndexIdent =>
       asString(id.symbol_) + "_" +
-        ((id.listindexc_ map (_.asInstanceOf[Index].numeral_)) mkString "_")
+        ((id.listindexc_ map (_.asInstanceOf[NumIndex].numeral_)) mkString "_")
   }
 
   def asString(s : Symbol) : String = s match {
@@ -294,7 +292,7 @@ object SMTParser2InputAbsy {
       case id : IndexIdent => id.symbol_ match {
         case s : NormalSymbol =>
           Some(List(s.normalsymbolt_) ++
-            (id.listindexc_ map (_.asInstanceOf[Index].numeral_)))
+            (id.listindexc_ map (_.asInstanceOf[NumIndex].numeral_)))
         case _ => None
       }
       case _ => None
@@ -1906,11 +1904,26 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
           unintFunApp(name, sym, args, polarity)
       }
 
-    case PlainSymbol(name@"alloc") =>
-      translateHeapFun(_.alloc,
+    case PlainSymbol(name) if name startsWith "alloc" =>
+      val (f, resSort) = extractHeap(args) match {
+        case Some((_, heap)) =>
+          name match {
+            case _ if name == heap.allocHeap.name =>
+              ((h: Heap) => h.allocHeap, (h: Heap) => SMTHeap(h))
+            case _ if name == heap.allocAddr.name =>
+              ((h : Heap) => h.allocAddr, (h : Heap) => SMTHeapAddress(h))
+            case _ if name == heap.alloc.name =>
+              ((h : Heap) => h.alloc,
+                (h : Heap) =>
+                  SMTADT(heap.heapADTs, heap.HeapADTSortId.allocResSortId.id))
+          }
+        case None => throw new TranslationException(
+          s"Could not determine the heap for $name($args)")
+      }
+      translateHeapFun(f,
                        args,
                        heap => List(objectType(heap)),
-                       heap => SMTADT(heap.heapADTs, heap.HeapADTSortId.allocResSortId.id)).getOrElse(
+                       resSort).getOrElse(
       unintFunApp(name, sym, args, polarity))
 
     case PlainSymbol(name@"batchAlloc") =>
@@ -1920,6 +1933,14 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
         heap => SMTADT(heap.heapADTs,
                        heap.HeapADTSortId.batchAllocResSortId.id)).getOrElse(
         unintFunApp(name, sym, args, polarity))
+//
+//    case PlainSymbol(name@"batchAllocHeap") =>
+//      translateHeapFun(_.batchAllocHeap,
+//        args,
+//        heap => List(objectType(heap), SMTInteger),
+//        heap => SMTADT(heap.heapADTs,
+//          heap.HeapADTSortId.batchAllocResSortId.id)).getOrElse(
+//        unintFunApp(name, sym, args, polarity))
 
     case PlainSymbol(name@"read") =>
       translateHeapFun(_.read,
@@ -2625,6 +2646,12 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
                     case s : IdentSort
                       if asString(s.identifier_) == addressSortName =>
                       (Heap.AddressCtor, SMTHeapAddress(null))
+                    case s : IdentSort
+                      if asString(s.identifier_) ==
+                        (addressSortName + Heap.addressRangeSuffix) =>
+                      // todo: -2 is to signal setupADT that this is an addressRange,
+                      //  can be fixed by declaring fixed heap ADTs first
+                      (Heap.AddressRangeCtor, SMTADT(null, -2))
                     case _ => val t = translateSort(selDecl.sort_)
                       (Heap.OtherSort(t.toSort), t)
                   }
@@ -2750,6 +2777,7 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
       for (((_, args), num) <- allCtors.zipWithIndex;
            args2 <- args.iterator;
            cleanedArgs = for (t <- args2) yield t match {
+             case SMTADT(null, -2) => smtDataTypes.last // todo: this signals the AddrRange ADT, which must always be the last type, find better solution!
              case SMTADT(null, n) => smtDataTypes(n)
              case t => t
            })
@@ -2821,7 +2849,7 @@ class SMTParser2InputAbsy(_env : Environment[SMTType,
 
     for (fun <- List(heap.emptyHeap, heap.allocHeap, heap.allocAddr,
                      heap.nullAddr,  heap.counter, heap.nthAddr,
-                     heap.batchAllocHeap, heap.batchAllocAddrRange, heap.nth)) {
+                     heap.batchAllocAddrRange, heap.nth)) {
       val smtArgSorts = (for (arg <- fun.argSorts) yield
         SMTLineariser.sort2SMTType(arg)._1).toList
       env.addFunction(fun, SMTFunctionType(smtArgSorts,
@@ -3043,14 +3071,14 @@ class FunPredSubstVisitor(substFuns : CMap[IFunction, IFunction],
   override def preVisit(t : IExpression, arg : Unit)
     : PreVisitResult = {
     t match {
-      case INot(IEquation(l, r)) if isHeapTerm(l) && isHeapTerm(r) =>
-        val s: Heap.HeapSort = getHeapSort(l) match {
-          case Some(heapSort) => heapSort
-          case None => throw new Exception("Could not get the sort of heap term" +
-            "for extensionality")
-        }
-        val extPred = MonoSortedPredicate(s.name + "-eq", Seq(s, s))
-        TryAgain(INot(IAtom(extPred, Seq(l, r))), arg)
+//      case INot(IEquation(l, r)) if isHeapTerm(l) && isHeapTerm(r) =>
+//        val s: Heap.HeapSort = getHeapSort(l) match {
+//          case Some(heapSort) => heapSort
+//          case None => throw new Exception("Could not get the sort of heap term" +
+//            "for extensionality")
+//        }
+//        val extPred = MonoSortedPredicate(s.name + "-eq", Seq(s, s))
+//        TryAgain(INot(IAtom(extPred, Seq(l, r))), arg)
       case _ => KeepArg
     }
   }
